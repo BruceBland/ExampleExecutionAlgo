@@ -24,7 +24,7 @@ public class ExampleAnalyticAlgo extends AnalyticAlgo {
 	private int SecondElapsedSoFar;
 	
 	// Debug levels
-	private boolean marketDataDebug = true;
+	private boolean marketDataDebug = false;
 	
 	// Market depth 
 	private Double CurrentBidPrice0 = 0.0;
@@ -218,18 +218,24 @@ public class ExampleAnalyticAlgo extends AnalyticAlgo {
         	
         case "ORDER_CANCELLED":
         	
-        	System.out.println("--- Status - ORDER_CANCELLED");
+        	System.out.println("--- Status - ORDER_CANCELLED" + reason);
         	
         	// Check if it was one we asked to be completed or not
-    		if (reason == "Requested cancel")
-    		{
-    				System.out.println("  System completed " + CurrentOrder + " as planned ");
-    			
-    		} else {
-    				
-    				System.out.println("  System completed " + CurrentOrder + " as with reason "+reason);
-    			
-    		}
+        	switch (reason) {
+        	case "Order too far from touch":
+        		System.out.println("  System completed " + CurrentOrder + " to far away ");
+        		break;
+        	case "Requested cancel":
+        		System.out.println("  System completed " + CurrentOrder + " as planned ");
+        		break;
+        	case "Filled":
+        		System.out.println("  System completed " + CurrentOrder + " as fully filled ");
+        		break;
+        	default:
+        		System.out.println("  System completed " + CurrentOrder + " **ERROR** ");
+        		break;
+        	}
+    		
         	break;
         	
         case "CLEAN UP":
@@ -239,20 +245,25 @@ public class ExampleAnalyticAlgo extends AnalyticAlgo {
         	// If we have an active order left
         	if (this.stats.getLiveOrderCount(this) > 0)
         	{
-        		//System.out.println("  Cancelling order outstanding - "+ CurrentOrder);
+        		// Must Cancel the existing order before sending the new one or you get two fills 
+        		System.out.println("  Cancelling order outstanding - "+ CurrentOrder);
         		// Cancel order first
-        		//gateway.cancelOrder(CurrentOrder);
+        		gateway.cancelOrder(CurrentOrder);
         		
-	        	// Send the aggressive order
-        		Long VolumeLeft = this.OrderVolume - VolumeDone;
-        		CurrentOrder = gateway.enterOrder(this, Side.Bid, VolumeLeft, CurrentAskPrice2);
-				System.out.println("  Entered "
-						+ "aggressive order " + CurrentOrder + "for " + VolumeLeft + " shares with touch Bid=" + CurrentBidPrice0 +
-						" Ask="+ CurrentAskPrice0 + " Placed at=" + CurrentAskPrice2 + " Arrival Price = "+StartingPrice);
         	} else {
         		System.out.println("  Order already completed nothing to clean up - "+ CurrentOrder);
         	}
-            break;
+        	
+        	// Send the aggressive order if we have something left to do
+    		Long VolumeLeft = this.OrderVolume - VolumeDone;
+    		if (VolumeLeft > 0)
+    		{
+    			CurrentOrder = gateway.enterOrder(this, Side.Bid, VolumeLeft, CurrentAskPrice2);
+    			System.out.println("  Entered "
+					+ "aggressive order " + CurrentOrder + "for " + VolumeLeft + " shares with touch Bid=" + CurrentBidPrice0 +
+					" Ask="+ CurrentAskPrice0 + " Placed at=" + CurrentAskPrice2 + " Arrival Price = "+StartingPrice);
+    		}
+			break;
             
         case "STOP":
 
