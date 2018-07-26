@@ -1,0 +1,287 @@
+import com.fidessa.raid.orderBookSimulator.api.AnalyticAlgo;
+import com.fidessa.raid.orderBookSimulator.api.DepthDetails;
+import com.fidessa.raid.orderBookSimulator.api.ExecutionDetails;
+import com.fidessa.raid.orderBookSimulator.api.Gateway;
+import com.fidessa.raid.orderBookSimulator.api.StatsCalculator;
+import com.fidessa.raid.orderBookSimulator.api.TradeDetails;
+import com.fidessa.raid.orderBookSimulator.objects.Side;
+
+/*
+ * Algo should extend AnalyticAlgo and not implement the
+ * Algo interface
+ */
+
+public class ExampleAnalyticAlgo extends AnalyticAlgo {
+
+	// Set during algo construction
+	private int OrderVolume;
+	private Side Direction;
+	private int Level;
+	private double TimeMilliSecs;
+	private double StatusInterval;
+	private int NumberOfStatusUpdates;
+	private int StatusIntervalNumber;
+	private int SecondElapsedSoFar;
+	
+	// Debug levels
+	private boolean marketDataDebug = true;
+	
+	// Market depth 
+	private Double CurrentBidPrice0 = 0.0;
+	//private Double CurrentBidPrice1 = 0.0;
+	//private Double CurrentBidPrice2 = 0.0;
+	private Double CurrentAskPrice0 = 0.0;
+	//private Double CurrentAskPrice1 = 0.0;
+	private Double CurrentAskPrice2 = 0.0;
+	
+	//Record the slices starting price so we know where we are now ...
+	private Double StartingPrice = 0.0;
+	
+	// Current order information
+	private String CurrentOrder = "";
+	private Long VolumeDone = 0L;
+	
+	// Construction
+	public ExampleAnalyticAlgo(int OrderVolume,Side Direction,int Level, double TimeSecs,int NumberOfStatusUpdates) {
+		this.OrderVolume = OrderVolume;
+		this.Direction = Direction;
+		this.Level = Level;
+		this.TimeMilliSecs = TimeSecs * 1000L;
+		this.NumberOfStatusUpdates = NumberOfStatusUpdates;
+		StatusInterval = TimeMilliSecs/(NumberOfStatusUpdates+1);
+	}
+	
+	// Stats object
+	public StatsCalculator Stats;
+	
+	/**
+	 * Handle the start of the simulation. 
+	 * The gateway object passed as argument is used
+	 * for all interactions with the simulated order book
+	 * eg, order placement, timer callbacks, simulation stop.
+	 * The intial order book depth is also passed as argument
+	 */
+	@Override
+	public void onStart(Gateway gateway, DepthDetails depth) { 
+		// ALWAYS call the super class implementation of each
+		// method to ensure that stats are properly collected
+		super.onStart(gateway, depth);
+
+		onStateChanged("ALGO_STARTED",depth,null,null,"","");
+		
+	}
+
+	/**
+	 * Handle an update to the order book.
+	 */
+	@Override
+	public void onBookUpdate(DepthDetails depth) { 
+		// ALWAYS call the super class implementation of each
+		// method to ensure that stats are properly collected
+		super.onBookUpdate(depth);
+		
+		onStateChanged("DEPTH_UPDATE",depth,null,null,"","");
+		
+	}
+
+	/**
+	 * Handle a trade notification event. This method is
+	 * triggered on any market trade not just executions
+	 * belonging to the algo
+	 */
+	@Override
+	public void onTrade(TradeDetails trade) {
+		// ALWAYS call the super class implementation of each
+		// method to ensure that stats are properly collected
+		super.onTrade(trade);
+		
+		onStateChanged("TRADE",null,trade,null,"","");
+		
+	}
+
+	/**
+	 * Handle an execution notification. This method is only called
+	 * for trades involving orders placed by the algo
+	 */
+	@Override
+	public void onExecution(ExecutionDetails exec) { 
+		// ALWAYS call the super class implementation of each
+		// method to ensure that stats are properly collected
+		super.onExecution(exec);
+		
+		onStateChanged("EXECUTION",null,null,exec,"","");
+		
+	}
+
+	/**
+	 * Handle an order cancelled notification. These can be
+	 * algo initiated (solicited) or simulation initiated
+	 * (unsolicited). The simulator can cancel orders if the 
+	 * order moves too far from the reference price.
+	 */
+	@Override
+	public void onOrderCancelled(String orderId, String reason) {
+		// ALWAYS call the super class implementation of each
+		// method to ensure that stats are properly collected
+		super.onOrderCancelled(orderId, reason);
+		
+		onStateChanged("ORDER_CANCELLED",null,null,null,orderId,reason);
+		
+	}
+
+
+	/**
+	 * Handle a timer callback event with use context passed as argument
+	 */
+	@Override
+	public void onTimeout(Object obj) {
+		
+		onStateChanged(obj,null,null,null,"","");
+	
+	}
+	
+	/**
+	* State machine goes here
+	*/
+	public void onStateChanged(Object obj,DepthDetails depth,TradeDetails trade,ExecutionDetails exec,String orderId, String reason) {
+		
+		String State = obj.toString();
+		
+		switch (State) {
+		case "ALGO_STARTED":
+			System.out.println("");
+			System.out.println("");
+			System.out.println("--- Status - ALGO_STARTED");
+        	System.out.println("  Algo started with interval of "+(long)StatusInterval/1000+" for "+(long)TimeMilliSecs/1000 +" seconds");
+
+        	// Add status time and end timer to stop algo
+    		gateway.addTimeout(this, (long)StatusInterval , "STATUS");
+    		gateway.addTimeout(this, (long)TimeMilliSecs - 1000, "CLEAN UP"); // 1 second clean up
+    		gateway.addTimeout(this, (long)TimeMilliSecs, "STOP");
+
+    		// Create order in the market
+    		StartingPrice = depth.getBid(Level).getPrice();
+    		CurrentOrder = gateway.enterOrder(this, Direction, OrderVolume, StartingPrice);
+    		
+    		System.out.println("  Entered order " + orderId + 
+    				" for "+ Direction + " " + OrderVolume + " shares" +
+    				" at " + depth.getBid(Level).getPrice());
+    		
+        	break;
+        	
+		case "DEPTH_UPDATE":
+			
+			// Store depth for creating passive and aggressive slices
+			CurrentBidPrice0 = depth.getBid(0).getPrice();
+			//CurrentBidPrice1 = depth.getBid(1).getPrice();
+			//CurrentBidPrice2 = depth.getBid(2).getPrice();
+			
+			CurrentAskPrice0 = depth.getAsk(0).getPrice();
+			//CurrentAskPrice1 = depth.getAsk(1).getPrice();
+			CurrentAskPrice2 = depth.getAsk(2).getPrice();
+			
+			if (marketDataDebug == true) {System.out.println("    Depth update event "+CurrentBidPrice0 + "-" + CurrentAskPrice0);}
+        	break;
+        	
+		case "EXECUTION":
+			
+			VolumeDone = VolumeDone + exec.getQty();
+        	System.out.println("  Order execution event " + exec.getOrderId() 
+        					+ " "+ exec.getPrice() + " " + exec.getQty());
+        	break;
+        	
+        case "TRADE":
+        	
+        	if (marketDataDebug == true) {System.out.println("    Market trade event @ "+  
+											+ trade.getPrice() + " for " + trade.getQty());}
+        	break;
+      
+        case "STATUS":
+        	
+        	SecondElapsedSoFar = SecondElapsedSoFar + (int)(StatusInterval/1000);
+        	
+        	// Add timer for next update
+        	if (StatusIntervalNumber < NumberOfStatusUpdates+100)
+        	{
+        		StatusIntervalNumber = StatusIntervalNumber + 1;
+        		System.out.println("Order status event " + StatusIntervalNumber + " after "+SecondElapsedSoFar + " seconds");
+        		
+        		int Level = WhereAreWeInDepth();
+        		System.out.println("  Level = " + Level  +" and Time = "+ StatusIntervalNumber + 
+        				" Live= " + this.stats.getLiveOrderCount(this));
+        		
+        		// Add next timer event
+        		gateway.addTimeout(this, (long)StatusInterval, "STATUS");
+        	}
+        	
+        	break;
+        	
+        case "ORDER_CANCELLED":
+        	
+        	System.out.println("--- Status - ORDER_CANCELLED");
+        	
+        	// Check if it was one we asked to be completed or not
+    		if (reason == "Requested cancel")
+    		{
+    				System.out.println("  System completed " + CurrentOrder + " as planned ");
+    			
+    		} else {
+    				
+    				System.out.println("  System completed " + CurrentOrder + " as with reason "+reason);
+    			
+    		}
+        	break;
+        	
+        case "CLEAN UP":
+        	
+        	System.out.println("--- Status - CLEAN UP");
+        	
+        	// If we have an active order left
+        	if (this.stats.getLiveOrderCount(this) > 0)
+        	{
+        		//System.out.println("  Cancelling order outstanding - "+ CurrentOrder);
+        		// Cancel order first
+        		//gateway.cancelOrder(CurrentOrder);
+        		
+	        	// Send the aggressive order
+        		Long VolumeLeft = this.OrderVolume - VolumeDone;
+        		CurrentOrder = gateway.enterOrder(this, Side.Bid, VolumeLeft, CurrentAskPrice2);
+				System.out.println("  Entered "
+						+ "aggressive order " + CurrentOrder + "for " + VolumeLeft + " shares with touch Bid=" + CurrentBidPrice0 +
+						" Ask="+ CurrentAskPrice0 + " Placed at=" + CurrentAskPrice2 + " Arrival Price = "+StartingPrice);
+        	} else {
+        		System.out.println("  Order already completed nothing to clean up - "+ CurrentOrder);
+        	}
+            break;
+            
+        case "STOP":
+
+        	// Algo finished
+        	System.out.println("--- Status - STOP");
+        	System.out.println("  Algo finished with Arrival Slippage = " + stats.getSlippageFromArrival() + 
+        			" and VWAP Slippage = "+stats.getSlippageFromVwap());
+			gateway.stop();
+            break;
+        	
+        default:
+        	System.out.println("*** Unhandled event occured ***");
+        	break;
+		}
+                 
+	}
+	
+	//Where are we in the order book - So we can set the level we are currently active at
+	private int WhereAreWeInDepth()
+	{
+		Double TickSize = this.stats.getTickSize();
+		Double Drift = (CurrentBidPrice0 - StartingPrice)/ TickSize;
+		int DriftInTicks = (int)Math.round(Drift);
+			
+		System.out.println("  Status of order " + CurrentOrder + " at starting price "+StartingPrice+" now at touch prices "
+				+ CurrentBidPrice0 + "-" + CurrentAskPrice0 + " - Now Level - " + DriftInTicks);
+		
+		return DriftInTicks;
+	}
+	
+	
+}
